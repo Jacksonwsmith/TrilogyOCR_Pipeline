@@ -11,7 +11,7 @@ import os
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 try:
     import fitz  # PyMuPDF
@@ -207,7 +207,7 @@ def require_api_key() -> str:
     return key
 
 
-def pdf_page_to_base64_jpeg(doc: Any, page_num: int, dpi: int = 220) -> Tuple[str, str]:
+def pdf_page_to_base64_jpeg(doc: Any, page_num: int, dpi: int = 220) -> tuple[str, str]:
     if Image is Any:
         raise RuntimeError("Missing pillow dependency. Install with `pip install -r requirements.txt`.")
     page = doc[page_num]
@@ -233,7 +233,7 @@ def strip_code_fences(text: str) -> str:
     return t
 
 
-def parse_json_array_loose(text: str) -> List[Dict[str, Any]]:
+def parse_json_array_loose(text: str) -> list[dict[str, Any]]:
     raw = strip_code_fences(text)
     try:
         parsed = json.loads(raw)
@@ -273,7 +273,7 @@ def _strip_number_commas(value: str) -> str:
     return (value or "").replace(",", "")
 
 
-def json_row_to_csv_row(item: Dict[str, Any]) -> Dict[str, str]:
+def json_row_to_csv_row(item: dict[str, Any]) -> dict[str, str]:
     row = {col: "" for col in CSV_COLUMNS}
     for jkey, ckey in JSON_TO_CSV.items():
         row[ckey] = str(item.get(jkey, "") if item.get(jkey, "") is not None else "")
@@ -331,7 +331,7 @@ def json_row_to_csv_row(item: Dict[str, Any]) -> Dict[str, str]:
     return row
 
 
-def dedupe_adjacent_rows(rows: List[Dict[str, str]]) -> List[Dict[str, str]]:
+def dedupe_adjacent_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
     if not rows:
         return []
     out = [rows[0]]
@@ -341,8 +341,8 @@ def dedupe_adjacent_rows(rows: List[Dict[str, str]]) -> List[Dict[str, str]]:
     return out
 
 
-def ask_model_for_page(client: Mistral, image_b64: str, media_type: str) -> List[Dict[str, Any]]:
-    last_error: Optional[Exception] = None
+def ask_model_for_page(client: Mistral, image_b64: str, media_type: str) -> list[dict[str, Any]]:
+    last_error: Exception | None = None
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             response = client.chat.complete(
@@ -420,7 +420,7 @@ def process_checks_to_csv(pdf_folder: str, output_csv: str) -> int:
     return total_rows
 
 
-def move_uploaded_files_to_checks(uploaded: Dict[str, Any], checks_dir: str = "checks") -> List[str]:
+def move_uploaded_files_to_checks(uploaded: dict[str, Any], checks_dir: str = "checks") -> list[str]:
     os.makedirs(checks_dir, exist_ok=True)
     for filename in uploaded.keys():
         os.rename(filename, os.path.join(checks_dir, filename))
