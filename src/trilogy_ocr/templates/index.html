@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Trilogy OCR Console</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="panel">
+        <p class="kicker">Trilogy OCR</p>
+        <h1>Run PDF Extraction in Browser</h1>
+        <p class="subtitle">Upload royalty check PDFs, run the existing backend pipeline, and download a normalized CSV.</p>
+
+        {% if error %}
+        <div class="alert">{{ error }}</div>
+        {% endif %}
+
+        <form action="/run" method="post" enctype="multipart/form-data" class="form" id="run-form">
+          <label for="api_key">Mistral API Key (optional if set in env)</label>
+          <input id="api_key" name="api_key" type="password" placeholder="MISTRAL_API_KEY" />
+
+          <label for="pdf_files">PDF Files</label>
+          <input id="pdf_files" name="pdf_files" type="file" accept=".pdf,application/pdf" multiple required />
+
+          <button type="submit" id="submit-btn">Run Extraction</button>
+        </form>
+      </section>
+    </main>
+
+    <script>
+      const form = document.getElementById("run-form");
+      const button = document.getElementById("submit-btn");
+      form.addEventListener("submit", () => {
+        button.disabled = true;
+        button.textContent = "Running...";
+      });
+    </script>
+  </body>
+</html>

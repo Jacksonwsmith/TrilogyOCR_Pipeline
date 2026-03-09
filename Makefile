@@ -1,4 +1,4 @@
-.PHONY: install dev lint test run
+.PHONY: install dev lint test run web
 
 install:
 	pip install -r requirements.txt
@@ -14,3 +14,6 @@ test:
 
 run:
 	trilogy-ocr --pdf-folder ./checks --output-csv ./output/royalty_checks.csv
+
+web:
+	trilogy-ocr-web

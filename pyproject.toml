@@ -13,6 +13,7 @@ dependencies = [
   "pymupdf>=1.24.0",
   "pillow>=10.0.0",
   "python-dotenv>=1.0.0",
+  "flask>=3.0.0",
 ]
 
 [project.optional-dependencies]
@@ -23,12 +24,17 @@ dev = [
 
 [project.scripts]
 trilogy-ocr = "trilogy_ocr.cli:main"
+trilogy-ocr-web = "trilogy_ocr.web:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
+include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+trilogy_ocr = ["templates/*.html", "static/*.css"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

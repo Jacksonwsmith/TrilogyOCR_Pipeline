@@ -38,10 +38,27 @@ Set `MISTRAL_API_KEY` in `.env`.
 trilogy-ocr --pdf-folder ./checks --output-csv ./output/royalty_checks.csv
 ```
 
+## Web UI
+Run a local browser UI:
+```bash
+trilogy-ocr-web
+```
+
+One-line run (install + launch):
+```bash
+pip install -r requirements.txt && trilogy-ocr-web
+```
+
+Then open `http://localhost:8080` and:
+- Enter `MISTRAL_API_KEY` (or keep it in your env/.env).
+- Upload one or more PDF files.
+- Run extraction and download the generated CSV.
+
 ## CLI usage
 ```bash
 trilogy-ocr --help
 python3 trilogy_ocr_pipeline.py --help
+trilogy-ocr-web
 ```
 
 Arguments:

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Run Result | Trilogy OCR</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="panel">
+        <p class="kicker">Run Complete</p>
+        <h1>Job {{ result.job_id }}</h1>
+
+        <div class="stats">
+          <div><span>Started</span><strong>{{ result.created_at }}</strong></div>
+          <div><span>PDFs</span><strong>{{ result.input_count }}</strong></div>
+          <div><span>Rows</span><strong>{{ result.rows_written }}</strong></div>
+        </div>
+
+        {% if result.error %}
+          <div class="alert">
+            <h2>Pipeline Error</h2>
+            <pre>{{ result.error }}</pre>
+          </div>
+        {% else %}
+          <div class="success">CSV generated successfully.</div>
+          {% if result.output_csv %}
+            <a class="btn" href="/download/{{ result.job_id }}">Download CSV</a>
+          {% endif %}
+        {% endif %}
+
+        <a class="link" href="/">Run another job</a>
+      </section>
+    </main>
+  </body>
+</html>
