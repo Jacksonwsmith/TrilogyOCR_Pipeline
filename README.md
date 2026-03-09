@@ -6,8 +6,7 @@ Production-oriented OCR pipeline that converts royalty-check PDFs into a normali
 - Reads all `.pdf` files from an input folder.
 - Renders each page to an image.
 - Calls Mistral vision to extract one JSON object per detail line.
-- Normalizes date/numeric fields and writes a fixed-schema CSV.
-- Falls back to segmented page extraction when output appears truncated.
+- Writes a fixed-schema CSV as `royalty_checks.csv`.
 
 ## Project layout
 - `src/trilogy_ocr/pipeline.py`: Core extraction and transform logic.
@@ -33,9 +32,24 @@ cp .env.example .env
 ```
 Set `MISTRAL_API_KEY` in `.env`.
 
-4. Run pipeline.
+4. Put input files in `checks/` and run pipeline.
 ```bash
-trilogy-ocr --pdf-folder ./checks --output-csv ./output/royalty_checks.csv
+trilogy-ocr --pdf-folder ./checks --output-csv ./royalty_checks.csv
+```
+
+## Colab-style workflow parity
+This repo now includes the same flow as your pasted code:
+- create `checks/`
+- move uploaded files into `checks/`
+- process all PDFs and write `royalty_checks.csv`
+
+If you're in Colab and using `uploaded = files.upload()`, you can mirror your snippet with:
+```python
+from trilogy_ocr.pipeline import move_uploaded_files_to_checks, process_checks_to_csv
+
+check_files = move_uploaded_files_to_checks(uploaded, "checks")
+print(f"Found {len(check_files)} PDF file(s) in checks folder")
+process_checks_to_csv("./checks", "royalty_checks.csv")
 ```
 
 ## Web UI
@@ -71,14 +85,8 @@ Arguments:
 - `MISTRAL_MODEL` (default `pixtral-large-latest`)
 - `PDF_RENDER_DPI` (default `220`)
 - `MISTRAL_MAX_TOKENS` (default `30000`)
-- `MISTRAL_MAX_RETRIES` (default `4`)
-- `RETRY_BASE_DELAY_SECONDS` (default `1.5`)
-- `RETRY_JITTER_SECONDS` (default `0.4`)
-- `PAGE_SEGMENT_FALLBACK_PARTS` (default `2`)
-- `PAGE_SEGMENT_OVERLAP_PX` (default `80`)
-- `MAX_IMAGE_EDGE` (default `2600`)
-- `JPEG_QUALITY` (default `88`)
-- `REQUEST_PAUSE_SECONDS` (default `0.0`)
+- `MISTRAL_MAX_RETRIES` (default `1`)
+- `RETRY_DELAY_SECONDS` (default `2`)
 
 ## Development
 Install dev dependencies:
