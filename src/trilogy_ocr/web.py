@@ -17,7 +17,9 @@ from . import pipeline
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 RUNS_DIR = BASE_DIR / "web_runs"
+PERSISTENT_CHECKS_DIR = BASE_DIR / "checks"
 RUNS_DIR.mkdir(parents=True, exist_ok=True)
+PERSISTENT_CHECKS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 @dataclass
@@ -62,7 +64,11 @@ def create_app() -> Flask:
             safe_name = secure_filename(file.filename)
             if not safe_name.lower().endswith(".pdf"):
                 continue
-            file.save(checks_dir / safe_name)
+            file_bytes = file.read()
+            if not file_bytes:
+                continue
+            (checks_dir / safe_name).write_bytes(file_bytes)
+            (PERSISTENT_CHECKS_DIR / safe_name).write_bytes(file_bytes)
 
         output_csv = output_dir / "royalty_checks.csv"
         rows_written = 0
