@@ -341,6 +341,23 @@ def dedupe_adjacent_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
     return out
 
 
+def _extract_message_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+                continue
+            if isinstance(item, dict):
+                text_value = item.get("text")
+                if isinstance(text_value, str):
+                    parts.append(text_value)
+        return "\n".join(parts).strip()
+    return ""
+
+
 def ask_model_for_page(client: Mistral, image_b64: str, media_type: str) -> list[dict[str, Any]]:
     last_error: Exception | None = None
     for attempt in range(1, MAX_RETRIES + 1):
@@ -360,9 +377,10 @@ def ask_model_for_page(client: Mistral, image_b64: str, media_type: str) -> list
                 ],
             )
             content = response.choices[0].message.content
-            if not isinstance(content, str):
-                raise ValueError("Model response content was not a string.")
-            return parse_json_array_loose(content)
+            content_text = _extract_message_text(content)
+            if not content_text:
+                raise ValueError("Model response content was empty.")
+            return parse_json_array_loose(content_text)
         except Exception as exc:
             last_error = exc
             logging.warning(f"Attempt {attempt} failed: {exc}")
