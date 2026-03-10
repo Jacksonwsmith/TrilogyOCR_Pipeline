@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import os
 import threading
 import time
@@ -54,6 +55,9 @@ def _build_job_snapshot(job: dict[str, Any]) -> dict[str, Any]:
         "eta_seconds": round(eta_seconds, 1) if eta_seconds is not None else None,
         "progress_percent": round((processed_pages / total_pages) * 100, 1) if total_pages else 0.0,
         "download_url": f"/download/{job['job_id']}" if output_csv.exists() else "",
+        "preview_url": f"/preview/{job['job_id']}" if output_csv.exists() else "",
+        "csv_name": output_csv.name,
+        "can_cancel": str(job.get("status", "")) in {"queued", "running", "cancelling"},
     }
 
 
@@ -80,16 +84,27 @@ def _run_job(job_id: str, checks_dir: Path, output_csv: Path, api_key: str) -> N
             current["total_pages"] = int(update.get("total_pages", current.get("total_pages", 0)))
             current["current_file"] = str(update.get("current_file", current.get("current_file", "")))
 
+    def should_stop() -> bool:
+        with JOBS_LOCK:
+            current = JOBS.get(job_id)
+            if not current:
+                return True
+            return bool(current.get("cancellation_requested", False))
+
     try:
         rows_written = pipeline.process_checks_to_csv(
             str(checks_dir),
             str(output_csv),
             progress_callback=progress_update,
+            should_stop=should_stop,
         )
         with JOBS_LOCK:
             current = JOBS.get(job_id)
             if current:
-                current["status"] = "completed"
+                if current.get("cancellation_requested") or current.get("status") == "cancelled":
+                    current["status"] = "cancelled"
+                else:
+                    current["status"] = "completed"
                 current["rows_written"] = rows_written
                 current["processed_pages"] = int(current.get("total_pages", current.get("processed_pages", 0)))
                 current["end_ts"] = time.time()
@@ -181,6 +196,7 @@ def create_app() -> Flask:
                 "current_file": "",
                 "error": "",
                 "output_csv": str(output_csv),
+                "cancellation_requested": False,
             }
 
         worker = threading.Thread(target=_run_job, args=(job_id, checks_dir, output_csv, api_key), daemon=True)
@@ -206,12 +222,58 @@ def create_app() -> Flask:
             snapshot = _build_job_snapshot(job)
         return jsonify(snapshot)
 
+    @app.post("/cancel/<job_id>")
+    def cancel_job(job_id: str) -> Any:
+        safe_id = secure_filename(job_id)
+        with JOBS_LOCK:
+            job = JOBS.get(safe_id)
+            if not job:
+                abort(404)
+            status = str(job.get("status", ""))
+            if status in {"completed", "failed", "cancelled"}:
+                return jsonify({"ok": True, "status": status})
+            job["cancellation_requested"] = True
+            if status in {"queued", "running"}:
+                job["status"] = "cancelling"
+            snapshot = _build_job_snapshot(job)
+        return jsonify({"ok": True, "status": snapshot["status"]})
+
     @app.get("/download/<job_id>")
     def download_csv(job_id: str) -> Any:
         target = RUNS_DIR / secure_filename(job_id) / "output" / "royalty_checks.csv"
         if not target.exists():
             abort(404)
         return send_file(target, as_attachment=True, download_name=f"royalty_checks_{job_id}.csv")
+
+    @app.get("/preview/<job_id>")
+    def preview_csv(job_id: str) -> str:
+        target = RUNS_DIR / secure_filename(job_id) / "output" / "royalty_checks.csv"
+        if not target.exists():
+            abort(404)
+
+        headers: list[str] = []
+        rows: list[list[str]] = []
+        total_rows = 0
+        preview_limit = 200
+
+        with target.open("r", encoding="utf-8", newline="") as f:
+            reader = csv.reader(f)
+            headers = next(reader, [])
+            for row in reader:
+                total_rows += 1
+                if len(rows) < preview_limit:
+                    rows.append(row)
+
+        return render_template(
+            "preview.html",
+            job_id=secure_filename(job_id),
+            csv_name=target.name,
+            headers=headers,
+            rows=rows,
+            total_rows=total_rows,
+            shown_rows=len(rows),
+            brand_image=find_brand_image(),
+        )
 
     @app.get("/brand-pdf")
     def download_brand_pdf() -> Any:

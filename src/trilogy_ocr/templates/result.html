@@ -10,13 +10,27 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}" />
   </head>
   <body>
+    <div class="shader-bg" aria-hidden="true">
+      <div class="shader-layer shader-a"></div>
+      <div class="shader-layer shader-b"></div>
+      <div class="shader-layer shader-c"></div>
+      <div class="shader-noise"></div>
+    </div>
     <main class="shell">
       <section class="panel">
-        {% if brand_image %}
-        <div class="brand-header">
-          <img src="/brand-image" alt="Trilogy brand" class="brand-logo" />
+        <div class="console-head">
+          <div class="console-brand">
+            {% if brand_image %}
+            <img src="/brand-image" alt="Trilogy brand" class="brand-logo" />
+            {% endif %}
+            <div>
+              <strong>Trilogy Pipeline</strong>
+              <span>Live operations dashboard</span>
+            </div>
+          </div>
+          <div class="console-time" id="console-time">Loading...</div>
         </div>
-        {% endif %}
+
         <p class="kicker" id="run-state">Run In Progress</p>
         <h1>Job {{ result.job_id }}</h1>
 
@@ -37,7 +51,21 @@
         </div>
 
         <div class="success hidden" id="success-box">CSV generated successfully.</div>
+        <div class="brand-card hidden" id="csv-card">
+          <div>
+            <span class="brand-label">Generated CSV</span>
+            <strong id="csv-name">{{ result.csv_name }}</strong>
+          </div>
+          <a class="brand-link hidden" id="preview-btn" href="#">Preview</a>
+        </div>
         <a class="btn hidden" id="download-btn" href="#">Download CSV</a>
+        <button
+          type="button"
+          class="btn btn-danger {% if result.status not in ['queued', 'running', 'cancelling'] %}hidden{% endif %}"
+          id="stop-btn"
+        >
+          Stop Extraction
+        </button>
         <a class="link" href="/">Run another job</a>
       </section>
     </main>
@@ -66,9 +94,15 @@
       const errorText = document.getElementById("error-text");
       const successBox = document.getElementById("success-box");
       const downloadBtn = document.getElementById("download-btn");
+      const stopBtn = document.getElementById("stop-btn");
+      const csvCard = document.getElementById("csv-card");
+      const csvName = document.getElementById("csv-name");
+      const previewBtn = document.getElementById("preview-btn");
       const progressLabel = document.getElementById("progress-label");
       const progressPercent = document.getElementById("progress-percent");
       const progressFill = document.getElementById("progress-fill");
+      const stamp = document.getElementById("console-time");
+      stamp.textContent = new Date().toLocaleString();
 
       function formatSeconds(value) {
         if (value === null || value === undefined) return "--";
@@ -90,6 +124,7 @@
         pageCount.textContent = total > 0 ? `${processed}/${total}` : `${processed}/--`;
         elapsedTime.textContent = formatSeconds(data.elapsed_seconds);
         etaTime.textContent = status === "completed" ? "0s" : formatSeconds(data.eta_seconds);
+        csvName.textContent = data.csv_name || "royalty_checks.csv";
 
         progressLabel.textContent = data.current_file
           ? `Processing ${data.current_file}`
@@ -103,17 +138,48 @@
           statusMessage.textContent = "Run failed.";
           errorText.textContent = data.error || "Unknown error.";
           errorBox.classList.remove("hidden");
+          stopBtn.disabled = true;
+          stopBtn.classList.add("hidden");
+        } else if (status === "cancelled") {
+          statusMessage.textContent = "Run cancelled.";
+          stopBtn.disabled = true;
+          stopBtn.classList.add("hidden");
         } else if (status === "completed") {
           statusMessage.textContent = "Run complete.";
           successBox.classList.remove("hidden");
+          stopBtn.disabled = true;
+          stopBtn.classList.add("hidden");
+          csvCard.classList.remove("hidden");
           if (data.download_url) {
             downloadBtn.href = data.download_url;
             downloadBtn.classList.remove("hidden");
           }
+          if (data.preview_url) {
+            previewBtn.href = data.preview_url;
+            previewBtn.classList.remove("hidden");
+          }
+        } else if (status === "cancelling") {
+          statusMessage.textContent = "Cancelling extraction...";
+          stopBtn.disabled = true;
+          stopBtn.textContent = "Stopping...";
         } else {
           statusMessage.textContent = "Running extraction...";
+          stopBtn.disabled = false;
+          stopBtn.classList.remove("hidden");
+          stopBtn.textContent = "Stop Extraction";
         }
       }
+
+      stopBtn.addEventListener("click", async () => {
+        stopBtn.disabled = true;
+        stopBtn.textContent = "Stopping...";
+        try {
+          await fetch(`/cancel/${jobId}`, { method: "POST" });
+        } catch (err) {
+          stopBtn.disabled = false;
+          stopBtn.textContent = "Stop Extraction";
+        }
+      });
 
       async function pollStatus() {
         try {

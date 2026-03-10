@@ -358,9 +358,20 @@ def _extract_message_text(content: Any) -> str:
     return ""
 
 
-def ask_model_for_page(client: Mistral, image_b64: str, media_type: str) -> list[dict[str, Any]]:
+class ExtractionCancelledError(RuntimeError):
+    """Raised when a running extraction was cancelled by the user."""
+
+
+def ask_model_for_page(
+    client: Mistral,
+    image_b64: str,
+    media_type: str,
+    should_stop: Callable[[], bool] | None = None,
+) -> list[dict[str, Any]]:
     last_error: Exception | None = None
     for attempt in range(1, MAX_RETRIES + 1):
+        if should_stop and should_stop():
+            raise ExtractionCancelledError("Extraction cancelled.")
         try:
             response = client.chat.complete(
                 model=MODEL,
@@ -393,6 +404,7 @@ def process_checks_to_csv(
     pdf_folder: str,
     output_csv: str,
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> int:
     if fitz is None:
         raise RuntimeError("Missing pymupdf dependency. Install with `pip install -r requirements.txt`.")
@@ -451,13 +463,45 @@ def process_checks_to_csv(
         writer.writeheader()
 
         for pdf_path in pdf_paths:
+            if should_stop and should_stop():
+                if progress_callback:
+                    progress_callback(
+                        {
+                            "state": "cancelled",
+                            "total_files": len(pdf_paths),
+                            "total_pages": total_pages,
+                            "processed_pages": processed_pages,
+                            "rows_written": total_rows,
+                            "current_file": "",
+                        }
+                    )
+                return total_rows
             print(f"Processing {pdf_path.name}")
             file_rows = 0
             try:
                 doc = fitz.open(pdf_path)
                 for page_num in range(doc.page_count):
+                    if should_stop and should_stop():
+                        doc.close()
+                        if progress_callback:
+                            progress_callback(
+                                {
+                                    "state": "cancelled",
+                                    "total_files": len(pdf_paths),
+                                    "total_pages": total_pages,
+                                    "processed_pages": processed_pages,
+                                    "rows_written": total_rows,
+                                    "current_file": "",
+                                }
+                            )
+                        return total_rows
                     image_b64, media_type = pdf_page_to_base64_jpeg(doc, page_num, dpi=DPI)
-                    detail_lines = ask_model_for_page(client, image_b64, media_type)
+                    detail_lines = ask_model_for_page(
+                        client,
+                        image_b64,
+                        media_type,
+                        should_stop=should_stop,
+                    )
                     for line in detail_lines:
                         writer.writerow(json_row_to_csv_row(line))
                         file_rows += 1
@@ -477,6 +521,19 @@ def process_checks_to_csv(
                     print(f"  Page {page_num + 1}: {len(detail_lines)} detail line(s)")
                 doc.close()
                 print(f"  Done {pdf_path.name}: {file_rows} rows")
+            except ExtractionCancelledError:
+                if progress_callback:
+                    progress_callback(
+                        {
+                            "state": "cancelled",
+                            "total_files": len(pdf_paths),
+                            "total_pages": total_pages,
+                            "processed_pages": processed_pages,
+                            "rows_written": total_rows,
+                            "current_file": "",
+                        }
+                    )
+                return total_rows
             except Exception as exc:
                 logging.error(f"  ERROR in {pdf_path.name}: {exc}", exc_info=True)
 

@@ -10,13 +10,27 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}" />
   </head>
   <body>
+    <div class="shader-bg" aria-hidden="true">
+      <div class="shader-layer shader-a"></div>
+      <div class="shader-layer shader-b"></div>
+      <div class="shader-layer shader-c"></div>
+      <div class="shader-noise"></div>
+    </div>
     <main class="shell">
       <section class="panel">
-        {% if brand_image %}
-        <div class="brand-header">
-          <img src="/brand-image" alt="Trilogy brand" class="brand-logo" />
+        <div class="console-head">
+          <div class="console-brand">
+            {% if brand_image %}
+            <img src="/brand-image" alt="Trilogy brand" class="brand-logo" />
+            {% endif %}
+            <div>
+              <strong>Trilogy Pipeline</strong>
+              <span>Royalty extraction console</span>
+            </div>
+          </div>
+          <div class="console-time" id="console-time">Loading...</div>
         </div>
-        {% endif %}
+
         <p class="kicker">Trilogy Pipeline</p>
         <h1>Royalty Statement Extraction Console</h1>
         <p class="subtitle">Upload royalty check PDFs, run extraction, and download a normalized CSV output.</p>
@@ -50,6 +64,8 @@
     <script>
       const form = document.getElementById("run-form");
       const button = document.getElementById("submit-btn");
+      const stamp = document.getElementById("console-time");
+      stamp.textContent = new Date().toLocaleString();
       form.addEventListener("submit", () => {
         button.disabled = true;
         button.textContent = "Running...";

@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CSV Preview | Trilogy OCR</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}" />
+  </head>
+  <body>
+    <div class="shader-bg" aria-hidden="true">
+      <div class="shader-layer shader-a"></div>
+      <div class="shader-layer shader-b"></div>
+      <div class="shader-layer shader-c"></div>
+      <div class="shader-noise"></div>
+    </div>
+
+    <main class="shell">
+      <section class="panel">
+        <div class="console-head">
+          <div class="console-brand">
+            {% if brand_image %}
+            <img src="/brand-image" alt="Trilogy brand" class="brand-logo" />
+            {% endif %}
+            <div>
+              <strong>CSV Preview</strong>
+              <span>{{ csv_name }}</span>
+            </div>
+          </div>
+          <div class="console-time">Job {{ job_id }}</div>
+        </div>
+
+        <p class="kicker">Preview</p>
+        <h1>CSV Output Preview</h1>
+        <p class="subtitle">Showing {{ shown_rows }} of {{ total_rows }} row(s).</p>
+
+        <div class="table-wrap">
+          <table class="csv-table">
+            <thead>
+              <tr>
+                {% for h in headers %}
+                <th>{{ h }}</th>
+                {% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in rows %}
+              <tr>
+                {% for value in row %}
+                <td>{{ value }}</td>
+                {% endfor %}
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        <a class="link" href="/job/{{ job_id }}">Back to job</a>
+      </section>
+    </main>
+  </body>
+</html>
