@@ -49,39 +49,39 @@ For EACH line in the revenue statement table, create a separate JSON object in a
 Each object should have these EXACT field names (use empty string "" for missing values):
 {
   "Operator_ID": "",
-  "Operator_Name": "DIVERSIFIED",
-  "Owner_Name": "Wilson Johnson Family",
-  "Owner_Number": "1064941",
-  "Check_Number": "5001502951",
-  "Check_Date": "1/27/2026",
-  "Check_Amount": "1031.33",
-  "Operator_CC": "1119847.01",
-  "Operator_API": "4703305324",
+  "Operator_Name": "",
+  "Owner_Name": "",
+  "Owner_Number": "",
+  "Check_Number": "",
+  "Check_Date": "",
+  "Check_Amount": "",
+  "Operator_CC": "",
+  "Operator_API": "",
   "Partner_API": "",
   "MA_API": "",
   "Partner_CC": "",
-  "Property_Description": "FORTNEY D 156, TOWN/DISTRICT: 04 EAGLE",
-  "Property_State": "WV",
-  "Property_County": "HARRISON",
+  "Property_Description": "",
+  "Property_State": "",
+  "Property_County": "",
   "Product_Code": "",
-  "Product_Description": "Gas",
+  "Product_Description": "",
   "Interest_Code": "",
-  "Interest_Type": "Royalty Interest",
-  "Owner_Percent": "0.0625",
-  "Distribution_Percent": "0.0625",
-  "Prod_Date": "11/1/2025",
-  "Price": "2.63",
-  "BTU_Factor": "1.0002",
-  "Gross_Volume": "605.27",
-  "Gross_Value": "1593.71",
-  "Gross_Taxes": "0",
-  "Gross_Deducts": "0",
-  "Net_Value": "1593.71",
-  "Owner_Gross_Volume": "37.83",
-  "Owner_Gross_Value": "99.61",
-  "Owner_Gross_Taxes": "0",
-  "Owner_Gross_Deducts": "0",
-  "Owner_Net_Value": "99.61",
+  "Interest_Type": "",
+  "Owner_Percent": "",
+  "Distribution_Percent": "",
+  "Prod_Date": "",
+  "Price": "",
+  "BTU_Factor": "",
+  "Gross_Volume": "",
+  "Gross_Value": "",
+  "Gross_Taxes": "",
+  "Gross_Deducts": "",
+  "Net_Value": "",
+  "Owner_Gross_Volume": "",
+  "Owner_Gross_Value": "",
+  "Owner_Gross_Taxes": "",
+  "Owner_Gross_Deducts": "",
+  "Owner_Net_Value": "",
   "Tax_Code_1": "", "Tax_Type_1": "", "Gross_Tax_1": "", "Net_Tax_1": "",
   "Tax_Code_2": "", "Tax_Type_2": "", "Gross_Tax_2": "", "Net_Tax_2": "",
   "Tax_Code_3": "", "Tax_Type_3": "", "Gross_Tax_3": "", "Net_Tax_3": "",
@@ -106,15 +106,16 @@ Each object should have these EXACT field names (use empty string "" for missing
 }
 
 CRITICAL INSTRUCTIONS:
-- Operator_CC = the Property number (e.g., "1119847.01")
-- Operator_API = the "Operator API#" number (e.g., "4703305324")
+- Operator_CC = the Property number from the statement
+- Operator_API = the "Operator API#" number from the statement
 - Product_Description = "Gas" or "Oil" from the Type column
-- Interest_Type = "Royalty Interest" or "FRR1" from the Type column
+- Interest_Type = value from the Type/interest column (for example "Royalty Interest" or "FRR1")
 - Create ONE object per line in the revenue table
 - Return a JSON ARRAY with ALL detail lines found on this page
 - Use empty strings "" for any missing data
 - Remove commas from numbers (e.g., "1,593.71" becomes "1593.71")
 - Format dates as M/D/YYYY (e.g., "11/1/2025")
+- Do not reuse values from prior examples; only extract what is visible on this image.
 
 Return ONLY the JSON array, no markdown, no explanation.
 """
@@ -305,6 +306,22 @@ def _normalize_date_mdy(value: str) -> str:
 
 def _strip_number_commas(value: str) -> str:
     return (value or "").replace(",", "")
+
+
+def apply_sticky_context(row: dict[str, str], context: dict[str, str], sticky_columns: list[str]) -> dict[str, str]:
+    """
+    Fill repeated statement-level fields on sparse detail rows.
+    If a sticky field is blank on this row but was seen earlier in the same file,
+    carry it forward.
+    """
+    out = dict(row)
+    for col in sticky_columns:
+        current = (out.get(col, "") or "").strip()
+        if current:
+            context[col] = current
+        elif context.get(col):
+            out[col] = context[col]
+    return out
 
 
 def json_row_to_csv_row(item: dict[str, Any]) -> dict[str, str]:
@@ -528,6 +545,20 @@ def process_checks_to_csv(
                 return total_rows
             print(f"Processing {pdf_path.name}")
             file_rows = 0
+            file_context: dict[str, str] = {}
+            sticky_columns = [
+                "Operator Name",
+                "Owner Name",
+                "Owner Number",
+                "Check Number",
+                "Check Date",
+                "Check Amount",
+                "Operator CC",
+                "Operator API",
+                "Property Description",
+                "Property State",
+                "Property County",
+            ]
             try:
                 doc = fitz.open(pdf_path)
                 for page_num in range(doc.page_count):
@@ -576,7 +607,9 @@ def process_checks_to_csv(
                         if segmented_lines:
                             detail_lines = merge_unique_rows(detail_lines, segmented_lines)
                     for line in detail_lines:
-                        writer.writerow(json_row_to_csv_row(line))
+                        csv_row = json_row_to_csv_row(line)
+                        csv_row = apply_sticky_context(csv_row, file_context, sticky_columns)
+                        writer.writerow(csv_row)
                         file_rows += 1
                         total_rows += 1
                     processed_pages += 1
