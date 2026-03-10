@@ -11,7 +11,7 @@ import os
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 try:
     import fitz  # PyMuPDF
@@ -389,7 +389,11 @@ def ask_model_for_page(client: Mistral, image_b64: str, media_type: str) -> list
     raise RuntimeError(f"Model call failed after {MAX_RETRIES} attempts: {last_error}")
 
 
-def process_checks_to_csv(pdf_folder: str, output_csv: str) -> int:
+def process_checks_to_csv(
+    pdf_folder: str,
+    output_csv: str,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
+) -> int:
     if fitz is None:
         raise RuntimeError("Missing pymupdf dependency. Install with `pip install -r requirements.txt`.")
     if Mistral is Any:
@@ -402,6 +406,16 @@ def process_checks_to_csv(pdf_folder: str, output_csv: str) -> int:
     pdf_paths = sorted([p for p in pdf_dir.iterdir() if p.suffix.lower() == ".pdf"])
     if not pdf_paths:
         print("No PDF files found.")
+        if progress_callback:
+            progress_callback(
+                {
+                    "state": "completed",
+                    "total_files": 0,
+                    "total_pages": 0,
+                    "processed_pages": 0,
+                    "rows_written": 0,
+                }
+            )
         return 0
 
     api_key = require_api_key()
@@ -409,8 +423,28 @@ def process_checks_to_csv(pdf_folder: str, output_csv: str) -> int:
     output_path = Path(output_csv)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
+    total_pages = 0
+    for pdf_path in pdf_paths:
+        try:
+            with fitz.open(pdf_path) as doc:
+                total_pages += doc.page_count
+        except Exception:
+            continue
+
+    processed_pages = 0
     total_rows = 0
     print(f"Found {len(pdf_paths)} PDF file(s). Processing...")
+    if progress_callback:
+        progress_callback(
+            {
+                "state": "running",
+                "total_files": len(pdf_paths),
+                "total_pages": total_pages,
+                "processed_pages": processed_pages,
+                "rows_written": total_rows,
+                "current_file": "",
+            }
+        )
 
     with open(output_path, "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=CSV_COLUMNS)
@@ -428,6 +462,18 @@ def process_checks_to_csv(pdf_folder: str, output_csv: str) -> int:
                         writer.writerow(json_row_to_csv_row(line))
                         file_rows += 1
                         total_rows += 1
+                    processed_pages += 1
+                    if progress_callback:
+                        progress_callback(
+                            {
+                                "state": "running",
+                                "total_files": len(pdf_paths),
+                                "total_pages": total_pages,
+                                "processed_pages": processed_pages,
+                                "rows_written": total_rows,
+                                "current_file": pdf_path.name,
+                            }
+                        )
                     print(f"  Page {page_num + 1}: {len(detail_lines)} detail line(s)")
                 doc.close()
                 print(f"  Done {pdf_path.name}: {file_rows} rows")
@@ -435,6 +481,17 @@ def process_checks_to_csv(pdf_folder: str, output_csv: str) -> int:
                 logging.error(f"  ERROR in {pdf_path.name}: {exc}", exc_info=True)
 
     print(f"Done. Wrote {total_rows} row(s) to {output_path}")
+    if progress_callback:
+        progress_callback(
+            {
+                "state": "completed",
+                "total_files": len(pdf_paths),
+                "total_pages": total_pages,
+                "processed_pages": processed_pages,
+                "rows_written": total_rows,
+                "current_file": "",
+            }
+        )
     return total_rows
 
 

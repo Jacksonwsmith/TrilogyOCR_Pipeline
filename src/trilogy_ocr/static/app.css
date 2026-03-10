@@ -150,6 +150,50 @@ button:disabled {
   font-weight: 700;
 }
 
+.hidden {
+  display: none;
+}
+
+.progress-dock {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(245, 255, 251, 0.97);
+  border-top: 1px solid #cde6dc;
+  backdrop-filter: blur(8px);
+}
+
+.progress-dock-inner {
+  width: min(960px, 100%);
+  margin: 0 auto;
+  padding: 0.7rem 1rem 0.85rem;
+}
+
+.progress-meta {
+  display: flex;
+  justify-content: space-between;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-bottom: 0.45rem;
+}
+
+.progress-track {
+  height: 10px;
+  width: 100%;
+  background: #dcede5;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(120deg, var(--accent), var(--accent-2));
+  transition: width 320ms ease;
+}
+
 @keyframes rise {
   from {
     opacity: 0;
@@ -165,5 +209,9 @@ button:disabled {
   .panel {
     padding: 1.25rem;
     border-radius: 18px;
+  }
+
+  .shell {
+    padding-bottom: 4.25rem;
   }
 }

@@ -12,29 +12,118 @@
   <body>
     <main class="shell">
       <section class="panel">
-        <p class="kicker">Run Complete</p>
+        <p class="kicker" id="run-state">Run In Progress</p>
         <h1>Job {{ result.job_id }}</h1>
 
         <div class="stats">
-          <div><span>Started</span><strong>{{ result.created_at }}</strong></div>
-          <div><span>PDFs</span><strong>{{ result.input_count }}</strong></div>
-          <div><span>Rows</span><strong>{{ result.rows_written }}</strong></div>
+          <div><span>Started</span><strong id="created-at">{{ result.created_at }}</strong></div>
+          <div><span>PDFs</span><strong id="pdf-count">{{ result.input_count }}</strong></div>
+          <div><span>Pages</span><strong id="page-count">{{ result.processed_pages }}/{{ result.total_pages }}</strong></div>
+          <div><span>Rows</span><strong id="rows-written">{{ result.rows_written }}</strong></div>
+          <div><span>Elapsed</span><strong id="elapsed-time">0s</strong></div>
+          <div><span>ETA</span><strong id="eta-time">--</strong></div>
         </div>
 
-        {% if result.error %}
-          <div class="alert">
-            <h2>Pipeline Error</h2>
-            <pre>{{ result.error }}</pre>
-          </div>
-        {% else %}
-          <div class="success">CSV generated successfully.</div>
-          {% if result.output_csv %}
-            <a class="btn" href="/download/{{ result.job_id }}">Download CSV</a>
-          {% endif %}
-        {% endif %}
+        <p class="subtitle" id="status-message">Queued...</p>
 
+        <div class="alert hidden" id="error-box">
+          <h2>Pipeline Error</h2>
+          <pre id="error-text"></pre>
+        </div>
+
+        <div class="success hidden" id="success-box">CSV generated successfully.</div>
+        <a class="btn hidden" id="download-btn" href="#">Download CSV</a>
         <a class="link" href="/">Run another job</a>
       </section>
     </main>
+
+    <div class="progress-dock">
+      <div class="progress-dock-inner">
+        <div class="progress-meta">
+          <span id="progress-label">Preparing...</span>
+          <span id="progress-percent">0%</span>
+        </div>
+        <div class="progress-track">
+          <div class="progress-fill" id="progress-fill"></div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const jobId = "{{ result.job_id }}";
+      const runState = document.getElementById("run-state");
+      const rowsWritten = document.getElementById("rows-written");
+      const pageCount = document.getElementById("page-count");
+      const elapsedTime = document.getElementById("elapsed-time");
+      const etaTime = document.getElementById("eta-time");
+      const statusMessage = document.getElementById("status-message");
+      const errorBox = document.getElementById("error-box");
+      const errorText = document.getElementById("error-text");
+      const successBox = document.getElementById("success-box");
+      const downloadBtn = document.getElementById("download-btn");
+      const progressLabel = document.getElementById("progress-label");
+      const progressPercent = document.getElementById("progress-percent");
+      const progressFill = document.getElementById("progress-fill");
+
+      function formatSeconds(value) {
+        if (value === null || value === undefined) return "--";
+        const total = Math.max(0, Math.round(value));
+        const mins = Math.floor(total / 60);
+        const secs = total % 60;
+        if (mins === 0) return `${secs}s`;
+        return `${mins}m ${secs}s`;
+      }
+
+      function renderStatus(data) {
+        const status = data.status || "queued";
+        const processed = Number(data.processed_pages || 0);
+        const total = Number(data.total_pages || 0);
+        const pct = Number(data.progress_percent || 0);
+
+        runState.textContent = status === "completed" ? "Run Complete" : "Run In Progress";
+        rowsWritten.textContent = String(data.rows_written || 0);
+        pageCount.textContent = total > 0 ? `${processed}/${total}` : `${processed}/--`;
+        elapsedTime.textContent = formatSeconds(data.elapsed_seconds);
+        etaTime.textContent = status === "completed" ? "0s" : formatSeconds(data.eta_seconds);
+
+        progressLabel.textContent = data.current_file
+          ? `Processing ${data.current_file}`
+          : status === "queued"
+            ? "Queued..."
+            : "Running...";
+        progressPercent.textContent = `${Math.round(pct)}%`;
+        progressFill.style.width = `${Math.min(100, Math.max(0, pct))}%`;
+
+        if (status === "failed") {
+          statusMessage.textContent = "Run failed.";
+          errorText.textContent = data.error || "Unknown error.";
+          errorBox.classList.remove("hidden");
+        } else if (status === "completed") {
+          statusMessage.textContent = "Run complete.";
+          successBox.classList.remove("hidden");
+          if (data.download_url) {
+            downloadBtn.href = data.download_url;
+            downloadBtn.classList.remove("hidden");
+          }
+        } else {
+          statusMessage.textContent = "Running extraction...";
+        }
+      }
+
+      async function pollStatus() {
+        try {
+          const response = await fetch(`/status/${jobId}`, { cache: "no-store" });
+          if (!response.ok) return;
+          const data = await response.json();
+          renderStatus(data);
+          if (data.status === "completed" || data.status === "failed") return;
+        } catch (err) {
+          statusMessage.textContent = "Status polling interrupted. Retrying...";
+        }
+        window.setTimeout(pollStatus, 1000);
+      }
+
+      pollStatus();
+    </script>
   </body>
 </html>
