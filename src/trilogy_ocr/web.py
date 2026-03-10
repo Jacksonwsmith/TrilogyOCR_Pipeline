@@ -57,6 +57,7 @@ def _build_job_snapshot(job: dict[str, Any]) -> dict[str, Any]:
         "download_url": f"/download/{job['job_id']}" if output_csv.exists() else "",
         "preview_url": f"/preview/{job['job_id']}" if output_csv.exists() else "",
         "csv_name": output_csv.name,
+        "page_timings": list(job.get("page_timings", [])),
         "can_cancel": str(job.get("status", "")) in {"queued", "running", "cancelling"},
     }
 
@@ -83,6 +84,19 @@ def _run_job(job_id: str, checks_dir: Path, output_csv: Path, api_key: str) -> N
             current["processed_pages"] = int(update.get("processed_pages", current.get("processed_pages", 0)))
             current["total_pages"] = int(update.get("total_pages", current.get("total_pages", 0)))
             current["current_file"] = str(update.get("current_file", current.get("current_file", "")))
+            page_elapsed = update.get("page_elapsed_seconds")
+            if page_elapsed is not None:
+                page_timings = list(current.get("page_timings", []))
+                page_timings.append(
+                    {
+                        "file": str(update.get("current_file", "")),
+                        "page": int(update.get("current_page_number", 0)),
+                        "file_pages": int(update.get("current_file_total_pages", 0)),
+                        "seconds": float(page_elapsed),
+                    }
+                )
+                # Keep the latest 50 pages for UI readability.
+                current["page_timings"] = page_timings[-50:]
 
     def should_stop() -> bool:
         with JOBS_LOCK:
@@ -197,6 +211,7 @@ def create_app() -> Flask:
                 "error": "",
                 "output_csv": str(output_csv),
                 "cancellation_requested": False,
+                "page_timings": [],
             }
 
         worker = threading.Thread(target=_run_job, args=(job_id, checks_dir, output_csv, api_key), daemon=True)

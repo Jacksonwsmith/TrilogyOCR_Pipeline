@@ -58,6 +58,14 @@
           </div>
           <a class="brand-link hidden" id="preview-btn" href="#">Preview</a>
         </div>
+
+        <div class="brand-card" id="timings-card">
+          <div class="timings-wrap">
+            <span class="brand-label">Per-page timings (latest 50)</span>
+            <div id="timings-list" class="timings-list">Waiting for first page...</div>
+          </div>
+        </div>
+
         <a class="btn hidden" id="download-btn" href="#">Download CSV</a>
         <button
           type="button"
@@ -98,6 +106,7 @@
       const csvCard = document.getElementById("csv-card");
       const csvName = document.getElementById("csv-name");
       const previewBtn = document.getElementById("preview-btn");
+      const timingsList = document.getElementById("timings-list");
       const progressLabel = document.getElementById("progress-label");
       const progressPercent = document.getElementById("progress-percent");
       const progressFill = document.getElementById("progress-fill");
@@ -125,6 +134,19 @@
         elapsedTime.textContent = formatSeconds(data.elapsed_seconds);
         etaTime.textContent = status === "completed" ? "0s" : formatSeconds(data.eta_seconds);
         csvName.textContent = data.csv_name || "royalty_checks.csv";
+        const timings = Array.isArray(data.page_timings) ? data.page_timings : [];
+        if (timings.length === 0) {
+          timingsList.textContent = "Waiting for first page...";
+        } else {
+          timingsList.innerHTML = timings
+            .map((entry) => {
+              const file = entry.file || "file";
+              const page = Number(entry.page || 0);
+              const sec = Number(entry.seconds || 0).toFixed(2);
+              return `<div class="timing-row"><span>${file} - page ${page}</span><strong>${sec}s</strong></div>`;
+            })
+            .join("");
+        }
 
         progressLabel.textContent = data.current_file
           ? `Processing ${data.current_file}`

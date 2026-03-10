@@ -7,6 +7,7 @@ import csv
 import io
 import json
 import logging
+import math
 import os
 import time
 from datetime import datetime
@@ -35,6 +36,9 @@ DPI = int(os.getenv("PDF_RENDER_DPI", "220"))
 MAX_TOKENS = int(os.getenv("MISTRAL_MAX_TOKENS", "30000"))
 MAX_RETRIES = int(os.getenv("MISTRAL_MAX_RETRIES", "1"))
 RETRY_DELAY_SECONDS = int(os.getenv("RETRY_DELAY_SECONDS", "2"))
+PAGE_SEGMENT_FALLBACK_PARTS = int(os.getenv("PAGE_SEGMENT_FALLBACK_PARTS", "2"))
+PAGE_SEGMENT_OVERLAP_PX = int(os.getenv("PAGE_SEGMENT_OVERLAP_PX", "120"))
+SEGMENT_PASS_ALWAYS = os.getenv("SEGMENT_PASS_ALWAYS", "1").strip().lower() in {"1", "true", "yes", "on"}
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
 
@@ -210,16 +214,46 @@ def require_api_key() -> str:
 def pdf_page_to_base64_jpeg(doc: Any, page_num: int, dpi: int = 220) -> tuple[str, str]:
     if Image is Any:
         raise RuntimeError("Missing pillow dependency. Install with `pip install -r requirements.txt`.")
+    img = render_page_image(doc, page_num, dpi=dpi)
+    return image_to_base64_jpeg(img)
+
+
+def render_page_image(doc: Any, page_num: int, dpi: int = 220) -> Any:
+    if Image is Any:
+        raise RuntimeError("Missing pillow dependency. Install with `pip install -r requirements.txt`.")
     page = doc[page_num]
     pix = page.get_pixmap(dpi=max(72, min(dpi, 350)))
     mode = "RGB"
     img = Image.frombytes("RGB" if pix.alpha == 0 else "RGBA", [pix.width, pix.height], pix.samples)
     if img.mode != mode:
         img = img.convert(mode)
+    return img
 
+
+def image_to_base64_jpeg(img: Any) -> tuple[str, str]:
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=92, optimize=True)
     return base64.b64encode(buf.getvalue()).decode("utf-8"), "image/jpeg"
+
+
+def split_image_vertical(img: Any, parts: int, overlap_px: int) -> list[Any]:
+    """Split an image into overlapping vertical segments."""
+    if parts <= 1:
+        return [img]
+    width, height = img.size
+    step = math.ceil(height / parts)
+    out: list[Any] = []
+    for idx in range(parts):
+        start = idx * step
+        end = min(height, (idx + 1) * step)
+        if idx > 0:
+            start = max(0, start - max(0, overlap_px))
+        if idx < parts - 1:
+            end = min(height, end + max(0, overlap_px))
+        if end <= start:
+            continue
+        out.append(img.crop((0, start, width, end)))
+    return out if out else [img]
 
 
 def strip_code_fences(text: str) -> str:
@@ -339,6 +373,22 @@ def dedupe_adjacent_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
         if row != out[-1]:
             out.append(row)
     return out
+
+
+def merge_unique_rows(primary: list[dict[str, Any]], extra: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Merge row dicts, preserving order and dropping exact duplicates by normalized JSON signature."""
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in primary + extra:
+        try:
+            sig = json.dumps(row, sort_keys=True, separators=(",", ":"))
+        except Exception:
+            sig = str(row)
+        if sig in seen:
+            continue
+        seen.add(sig)
+        merged.append(row)
+    return merged
 
 
 def _extract_message_text(content: Any) -> str:
@@ -481,6 +531,7 @@ def process_checks_to_csv(
             try:
                 doc = fitz.open(pdf_path)
                 for page_num in range(doc.page_count):
+                    page_started = time.time()
                     if should_stop and should_stop():
                         doc.close()
                         if progress_callback:
@@ -502,11 +553,34 @@ def process_checks_to_csv(
                         media_type,
                         should_stop=should_stop,
                     )
+                    # Optional segmented recovery pass to catch truncated/missed table rows.
+                    if PAGE_SEGMENT_FALLBACK_PARTS > 1 and (SEGMENT_PASS_ALWAYS or len(detail_lines) == 0):
+                        page_img = render_page_image(doc, page_num, dpi=DPI)
+                        segments = split_image_vertical(
+                            page_img,
+                            parts=PAGE_SEGMENT_FALLBACK_PARTS,
+                            overlap_px=PAGE_SEGMENT_OVERLAP_PX,
+                        )
+                        segmented_lines: list[dict[str, Any]] = []
+                        for segment in segments:
+                            if should_stop and should_stop():
+                                raise ExtractionCancelledError("Extraction cancelled.")
+                            seg_b64, seg_media_type = image_to_base64_jpeg(segment)
+                            seg_lines = ask_model_for_page(
+                                client,
+                                seg_b64,
+                                seg_media_type,
+                                should_stop=should_stop,
+                            )
+                            segmented_lines.extend(seg_lines)
+                        if segmented_lines:
+                            detail_lines = merge_unique_rows(detail_lines, segmented_lines)
                     for line in detail_lines:
                         writer.writerow(json_row_to_csv_row(line))
                         file_rows += 1
                         total_rows += 1
                     processed_pages += 1
+                    page_elapsed_seconds = round(time.time() - page_started, 3)
                     if progress_callback:
                         progress_callback(
                             {
@@ -516,9 +590,15 @@ def process_checks_to_csv(
                                 "processed_pages": processed_pages,
                                 "rows_written": total_rows,
                                 "current_file": pdf_path.name,
+                                "current_page_number": page_num + 1,
+                                "current_file_total_pages": doc.page_count,
+                                "page_elapsed_seconds": page_elapsed_seconds,
                             }
                         )
-                    print(f"  Page {page_num + 1}: {len(detail_lines)} detail line(s)")
+                    print(
+                        f"  Page {page_num + 1}: {len(detail_lines)} detail line(s) "
+                        f"in {page_elapsed_seconds:.2f}s"
+                    )
                 doc.close()
                 print(f"  Done {pdf_path.name}: {file_rows} rows")
             except ExtractionCancelledError:
