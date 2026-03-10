@@ -30,34 +30,107 @@
           </div>
           <div class="console-time" id="console-time">Loading...</div>
         </div>
+        <div class="console-grid">
+          <div class="workflow-col">
+            <p class="kicker">Workflow</p>
+            <h1>Royalty Statement Extraction Console</h1>
+            <p class="subtitle">Upload royalty check PDFs, run extraction, and download a normalized CSV output.</p>
 
-        <p class="kicker">Trilogy Pipeline</p>
-        <h1>Royalty Statement Extraction Console</h1>
-        <p class="subtitle">Upload royalty check PDFs, run extraction, and download a normalized CSV output.</p>
+            {% if brand_pdf %}
+            <div class="brand-card">
+              <div>
+                <span class="brand-label">Brand Reference PDF</span>
+                <strong>{{ brand_pdf }}</strong>
+              </div>
+              <a class="brand-link" href="/brand-pdf" target="_blank" rel="noopener noreferrer">Open</a>
+            </div>
+            {% endif %}
 
-        {% if brand_pdf %}
-        <div class="brand-card">
-          <div>
-            <span class="brand-label">Brand Reference PDF</span>
-            <strong>{{ brand_pdf }}</strong>
+            {% if error %}
+            <div class="alert">{{ error }}</div>
+            {% endif %}
+
+            <form action="/run" method="post" enctype="multipart/form-data" class="form" id="run-form">
+              <label for="api_key">Mistral API Key (optional if set in env)</label>
+              <input id="api_key" name="api_key" type="password" placeholder="MISTRAL_API_KEY" />
+
+              <label for="pdf_files">PDF Files</label>
+              <label for="pdf_files" class="dropzone" id="dropzone">
+                <input id="pdf_files" name="pdf_files" type="file" accept=".pdf,application/pdf" multiple required />
+                <span class="dropzone-title">Drag and drop PDF files here</span>
+                <span class="dropzone-subtitle" id="upload-hint">or click to browse</span>
+              </label>
+
+              <button type="submit" id="submit-btn">Run Extraction</button>
+            </form>
           </div>
-          <a class="brand-link" href="/brand-pdf" target="_blank" rel="noopener noreferrer">Open</a>
+
+          <aside class="processing-col">
+            <div class="processing-card">
+              <p class="kicker">Processing</p>
+              <h2>Pipeline Activity</h2>
+              <p class="subtitle">
+                Pages are rendered to images, extracted with Mistral vision, normalized to a fixed schema, and written
+                to CSV.
+              </p>
+              <div class="stats compact-stats">
+                <div><span>Model</span><strong>pixtral-large-latest</strong></div>
+                <div><span>Default DPI</span><strong>220</strong></div>
+                <div><span>Output</span><strong>CSV</strong></div>
+                <div><span>Status</span><strong>Ready</strong></div>
+              </div>
+              <div class="activity-stack">
+                <div class="activity-item">
+                  <span class="activity-dot is-idle"></span>
+                  <div>
+                    <strong>Awaiting Upload</strong>
+                    <p>No files are currently queued for extraction.</p>
+                  </div>
+                </div>
+                <div class="activity-item is-muted">
+                  <span class="activity-dot"></span>
+                  <div>
+                    <strong>OCR Stage</strong>
+                    <p>Will start automatically once PDFs are submitted.</p>
+                  </div>
+                </div>
+                <div class="activity-item is-muted">
+                  <span class="activity-dot"></span>
+                  <div>
+                    <strong>Normalization Stage</strong>
+                    <p>Schema mapping and CSV output will follow extraction.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </aside>
         </div>
-        {% endif %}
 
-        {% if error %}
-        <div class="alert">{{ error }}</div>
-        {% endif %}
-
-        <form action="/run" method="post" enctype="multipart/form-data" class="form" id="run-form">
-          <label for="api_key">Mistral API Key (optional if set in env)</label>
-          <input id="api_key" name="api_key" type="password" placeholder="MISTRAL_API_KEY" />
-
-          <label for="pdf_files">PDF Files</label>
-          <input id="pdf_files" name="pdf_files" type="file" accept=".pdf,application/pdf" multiple required />
-
-          <button type="submit" id="submit-btn">Run Extraction</button>
-        </form>
+        <section class="results-block">
+          <div class="results-head">
+            <p class="kicker">Results</p>
+            <h2>Extraction Output</h2>
+            <p class="subtitle">Run extraction to populate this table with generated outputs.</p>
+          </div>
+          <div class="results-table-wrap">
+            <table class="results-table">
+              <thead>
+                <tr>
+                  <th>File Name</th>
+                  <th>Status</th>
+                  <th>Rows</th>
+                  <th>Output</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="empty-row">
+                  <td colspan="5">No extraction runs yet. Upload PDFs to begin.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
       </section>
     </main>
 
@@ -65,7 +138,47 @@
       const form = document.getElementById("run-form");
       const button = document.getElementById("submit-btn");
       const stamp = document.getElementById("console-time");
+      const fileInput = document.getElementById("pdf_files");
+      const dropzone = document.getElementById("dropzone");
+      const uploadHint = document.getElementById("upload-hint");
       stamp.textContent = new Date().toLocaleString();
+
+      function updateUploadHint() {
+        const count = fileInput.files ? fileInput.files.length : 0;
+        uploadHint.textContent = count > 0 ? `${count} file(s) selected` : "or click to browse";
+      }
+
+      ["dragenter", "dragover"].forEach((eventName) => {
+        dropzone.addEventListener(eventName, (event) => {
+          event.preventDefault();
+          dropzone.classList.add("is-dragging");
+        });
+      });
+
+      ["dragleave", "drop"].forEach((eventName) => {
+        dropzone.addEventListener(eventName, (event) => {
+          event.preventDefault();
+          dropzone.classList.remove("is-dragging");
+        });
+      });
+
+      dropzone.addEventListener("drop", (event) => {
+        const files = event.dataTransfer ? event.dataTransfer.files : null;
+        if (!files || files.length === 0) return;
+        const dt = new DataTransfer();
+        for (const file of files) {
+          if ((file.type && file.type.includes("pdf")) || file.name.toLowerCase().endsWith(".pdf")) {
+            dt.items.add(file);
+          }
+        }
+        if (dt.files.length > 0) {
+          fileInput.files = dt.files;
+          updateUploadHint();
+        }
+      });
+
+      fileInput.addEventListener("change", updateUploadHint);
+
       form.addEventListener("submit", () => {
         button.disabled = true;
         button.textContent = "Running...";
