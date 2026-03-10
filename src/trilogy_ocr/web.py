@@ -106,9 +106,35 @@ def create_app() -> Flask:
     app = Flask(__name__, template_folder="templates", static_folder="static")
     app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024
 
+    def find_brand_pdf() -> str:
+        search_roots = [BASE_DIR, PERSISTENT_CHECKS_DIR]
+        for root in search_roots:
+            for path in sorted(root.glob("**/*trilogy*.pdf")):
+                if path.is_file():
+                    try:
+                        return str(path.relative_to(BASE_DIR))
+                    except ValueError:
+                        continue
+        return ""
+
+    def find_brand_image() -> str:
+        candidates = [
+            BASE_DIR / "Trilogy.jpg",
+            BASE_DIR / "trilogy.jpg",
+            BASE_DIR / "Trilogy.png",
+            BASE_DIR / "trilogy.png",
+        ]
+        for path in candidates:
+            if path.exists() and path.is_file():
+                try:
+                    return str(path.relative_to(BASE_DIR))
+                except ValueError:
+                    continue
+        return ""
+
     @app.get("/")
     def index() -> str:
-        return render_template("index.html")
+        return render_template("index.html", brand_pdf=find_brand_pdf(), brand_image=find_brand_image())
 
     @app.post("/run")
     def run_pipeline() -> str:
@@ -169,7 +195,7 @@ def create_app() -> Flask:
             if not job:
                 abort(404)
             snapshot = _build_job_snapshot(job)
-        return render_template("result.html", result=snapshot)
+        return render_template("result.html", result=snapshot, brand_image=find_brand_image())
 
     @app.get("/status/<job_id>")
     def job_status(job_id: str) -> Any:
@@ -186,6 +212,26 @@ def create_app() -> Flask:
         if not target.exists():
             abort(404)
         return send_file(target, as_attachment=True, download_name=f"royalty_checks_{job_id}.csv")
+
+    @app.get("/brand-pdf")
+    def download_brand_pdf() -> Any:
+        relative = find_brand_pdf()
+        if not relative:
+            abort(404)
+        target = BASE_DIR / relative
+        if not target.exists():
+            abort(404)
+        return send_file(target, as_attachment=False, download_name=target.name)
+
+    @app.get("/brand-image")
+    def download_brand_image() -> Any:
+        relative = find_brand_image()
+        if not relative:
+            abort(404)
+        target = BASE_DIR / relative
+        if not target.exists():
+            abort(404)
+        return send_file(target, as_attachment=False, download_name=target.name)
 
     return app
 

@@ -12,6 +12,11 @@
   <body>
     <main class="shell">
       <section class="panel">
+        {% if brand_image %}
+        <div class="brand-header">
+          <img src="/brand-image" alt="Trilogy brand" class="brand-logo" />
+        </div>
+        {% endif %}
         <p class="kicker" id="run-state">Run In Progress</p>
         <h1>Job {{ result.job_id }}</h1>
 

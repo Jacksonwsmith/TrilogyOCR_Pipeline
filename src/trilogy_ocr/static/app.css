@@ -1,10 +1,11 @@
 :root {
-  --bg-1: #eff7f4;
-  --bg-2: #d6efe4;
-  --ink: #17312a;
-  --muted: #3f5e54;
-  --accent: #2a8f6a;
-  --accent-2: #14513c;
+  --bg-1: #f8f5f6;
+  --bg-2: #f4dfe3;
+  --ink: #14070a;
+  --muted: #5a4047;
+  --accent: #c40f1c;
+  --accent-2: #7c0710;
+  --accent-3: #ea2e39;
   --warn: #b33b3b;
   --panel: rgba(255, 255, 255, 0.9);
 }
@@ -17,8 +18,9 @@ body {
   margin: 0;
   font-family: "Space Grotesk", sans-serif;
   color: var(--ink);
-  background: radial-gradient(circle at 20% 10%, var(--bg-2), transparent 45%),
-    linear-gradient(160deg, var(--bg-1), #f8fdfb);
+  background: radial-gradient(circle at 15% 5%, var(--bg-2), transparent 42%),
+    radial-gradient(circle at 88% 92%, #f2d0d4, transparent 35%),
+    linear-gradient(160deg, var(--bg-1), #fcfeff);
   min-height: 100vh;
 }
 
@@ -32,10 +34,10 @@ body {
 .panel {
   width: min(760px, 100%);
   background: var(--panel);
-  border: 1px solid #cde6dc;
+  border: 1px solid #e9c5cc;
   border-radius: 24px;
   padding: 2rem;
-  box-shadow: 0 20px 50px rgba(23, 49, 42, 0.12);
+  box-shadow: 0 24px 56px rgba(50, 8, 17, 0.14);
   animation: rise 420ms ease-out;
 }
 
@@ -63,6 +65,49 @@ h1 {
   margin-top: 1.2rem;
 }
 
+.brand-header {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 0.6rem;
+}
+
+.brand-logo {
+  width: 132px;
+  height: 132px;
+  object-fit: contain;
+  border-radius: 20px;
+  border: 1px solid #ebccd2;
+  background: #fff;
+  box-shadow: 0 10px 24px rgba(59, 11, 20, 0.15);
+}
+
+.brand-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid #efcdd3;
+  background: #fff6f8;
+  border-radius: 14px;
+  padding: 0.8rem 1rem;
+  margin: 1rem 0 0.4rem;
+}
+
+.brand-label {
+  display: block;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.brand-link {
+  text-decoration: none;
+  border-radius: 999px;
+  border: 1px solid #efc3cb;
+  background: #fff;
+  color: var(--accent-2);
+  font-weight: 700;
+  padding: 0.4rem 0.9rem;
+}
+
 label {
   font-weight: 500;
 }
@@ -70,10 +115,10 @@ label {
 input[type="password"],
 input[type="file"] {
   width: 100%;
-  border: 1px solid #bfdcd1;
+  border: 1px solid #ebcbd2;
   border-radius: 12px;
   padding: 0.8rem;
-  background: #fcfffe;
+  background: #fdfeff;
 }
 
 button,
@@ -112,7 +157,7 @@ button:disabled {
 
 .success {
   border-left: 4px solid var(--accent);
-  background: #ebfff6;
+  background: #fff2f4;
   padding: 0.9rem;
   border-radius: 8px;
   margin-bottom: 1rem;
@@ -126,8 +171,8 @@ button:disabled {
 }
 
 .stats div {
-  background: #f6fffa;
-  border: 1px solid #d7eee3;
+  background: #fff8f9;
+  border: 1px solid #f0d8dd;
   border-radius: 12px;
   padding: 0.75rem;
 }
@@ -159,8 +204,8 @@ button:disabled {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(245, 255, 251, 0.97);
-  border-top: 1px solid #cde6dc;
+  background: rgba(255, 248, 250, 0.97);
+  border-top: 1px solid #ebd2d8;
   backdrop-filter: blur(8px);
 }
 
@@ -182,7 +227,7 @@ button:disabled {
 .progress-track {
   height: 10px;
   width: 100%;
-  background: #dcede5;
+  background: #f0d8dd;
   border-radius: 999px;
   overflow: hidden;
 }
@@ -190,7 +235,7 @@ button:disabled {
 .progress-fill {
   height: 100%;
   width: 0%;
-  background: linear-gradient(120deg, var(--accent), var(--accent-2));
+  background: linear-gradient(120deg, var(--accent), var(--accent-2), var(--accent-3));
   transition: width 320ms ease;
 }
 
