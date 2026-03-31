@@ -7,11 +7,12 @@ import csv
 import io
 import json
 import logging
+import math
 import os
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable
 
 try:
     import fitz  # PyMuPDF
@@ -35,6 +36,9 @@ DPI = int(os.getenv("PDF_RENDER_DPI", "220"))
 MAX_TOKENS = int(os.getenv("MISTRAL_MAX_TOKENS", "30000"))
 MAX_RETRIES = int(os.getenv("MISTRAL_MAX_RETRIES", "1"))
 RETRY_DELAY_SECONDS = int(os.getenv("RETRY_DELAY_SECONDS", "2"))
+PAGE_SEGMENT_FALLBACK_PARTS = int(os.getenv("PAGE_SEGMENT_FALLBACK_PARTS", "2"))
+PAGE_SEGMENT_OVERLAP_PX = int(os.getenv("PAGE_SEGMENT_OVERLAP_PX", "120"))
+SEGMENT_PASS_ALWAYS = os.getenv("SEGMENT_PASS_ALWAYS", "1").strip().lower() in {"1", "true", "yes", "on"}
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
 
@@ -45,39 +49,39 @@ For EACH line in the revenue statement table, create a separate JSON object in a
 Each object should have these EXACT field names (use empty string "" for missing values):
 {
   "Operator_ID": "",
-  "Operator_Name": "DIVERSIFIED",
-  "Owner_Name": "Wilson Johnson Family",
-  "Owner_Number": "1064941",
-  "Check_Number": "5001502951",
-  "Check_Date": "1/27/2026",
-  "Check_Amount": "1031.33",
-  "Operator_CC": "1119847.01",
-  "Operator_API": "4703305324",
+  "Operator_Name": "",
+  "Owner_Name": "",
+  "Owner_Number": "",
+  "Check_Number": "",
+  "Check_Date": "",
+  "Check_Amount": "",
+  "Operator_CC": "",
+  "Operator_API": "",
   "Partner_API": "",
   "MA_API": "",
   "Partner_CC": "",
-  "Property_Description": "FORTNEY D 156, TOWN/DISTRICT: 04 EAGLE",
-  "Property_State": "WV",
-  "Property_County": "HARRISON",
+  "Property_Description": "",
+  "Property_State": "",
+  "Property_County": "",
   "Product_Code": "",
-  "Product_Description": "Gas",
+  "Product_Description": "",
   "Interest_Code": "",
-  "Interest_Type": "Royalty Interest",
-  "Owner_Percent": "0.0625",
-  "Distribution_Percent": "0.0625",
-  "Prod_Date": "11/1/2025",
-  "Price": "2.63",
-  "BTU_Factor": "1.0002",
-  "Gross_Volume": "605.27",
-  "Gross_Value": "1593.71",
-  "Gross_Taxes": "0",
-  "Gross_Deducts": "0",
-  "Net_Value": "1593.71",
-  "Owner_Gross_Volume": "37.83",
-  "Owner_Gross_Value": "99.61",
-  "Owner_Gross_Taxes": "0",
-  "Owner_Gross_Deducts": "0",
-  "Owner_Net_Value": "99.61",
+  "Interest_Type": "",
+  "Owner_Percent": "",
+  "Distribution_Percent": "",
+  "Prod_Date": "",
+  "Price": "",
+  "BTU_Factor": "",
+  "Gross_Volume": "",
+  "Gross_Value": "",
+  "Gross_Taxes": "",
+  "Gross_Deducts": "",
+  "Net_Value": "",
+  "Owner_Gross_Volume": "",
+  "Owner_Gross_Value": "",
+  "Owner_Gross_Taxes": "",
+  "Owner_Gross_Deducts": "",
+  "Owner_Net_Value": "",
   "Tax_Code_1": "", "Tax_Type_1": "", "Gross_Tax_1": "", "Net_Tax_1": "",
   "Tax_Code_2": "", "Tax_Type_2": "", "Gross_Tax_2": "", "Net_Tax_2": "",
   "Tax_Code_3": "", "Tax_Type_3": "", "Gross_Tax_3": "", "Net_Tax_3": "",
@@ -102,15 +106,16 @@ Each object should have these EXACT field names (use empty string "" for missing
 }
 
 CRITICAL INSTRUCTIONS:
-- Operator_CC = the Property number (e.g., "1119847.01")
-- Operator_API = the "Operator API#" number (e.g., "4703305324")
+- Operator_CC = the Property number from the statement
+- Operator_API = the "Operator API#" number from the statement
 - Product_Description = "Gas" or "Oil" from the Type column
-- Interest_Type = "Royalty Interest" or "FRR1" from the Type column
+- Interest_Type = value from the Type/interest column (for example "Royalty Interest" or "FRR1")
 - Create ONE object per line in the revenue table
 - Return a JSON ARRAY with ALL detail lines found on this page
 - Use empty strings "" for any missing data
 - Remove commas from numbers (e.g., "1,593.71" becomes "1593.71")
 - Format dates as M/D/YYYY (e.g., "11/1/2025")
+- Do not reuse values from prior examples; only extract what is visible on this image.
 
 Return ONLY the JSON array, no markdown, no explanation.
 """
@@ -207,7 +212,14 @@ def require_api_key() -> str:
     return key
 
 
-def pdf_page_to_base64_jpeg(doc: Any, page_num: int, dpi: int = 220) -> Tuple[str, str]:
+def pdf_page_to_base64_jpeg(doc: Any, page_num: int, dpi: int = 220) -> tuple[str, str]:
+    if Image is Any:
+        raise RuntimeError("Missing pillow dependency. Install with `pip install -r requirements.txt`.")
+    img = render_page_image(doc, page_num, dpi=dpi)
+    return image_to_base64_jpeg(img)
+
+
+def render_page_image(doc: Any, page_num: int, dpi: int = 220) -> Any:
     if Image is Any:
         raise RuntimeError("Missing pillow dependency. Install with `pip install -r requirements.txt`.")
     page = doc[page_num]
@@ -216,10 +228,33 @@ def pdf_page_to_base64_jpeg(doc: Any, page_num: int, dpi: int = 220) -> Tuple[st
     img = Image.frombytes("RGB" if pix.alpha == 0 else "RGBA", [pix.width, pix.height], pix.samples)
     if img.mode != mode:
         img = img.convert(mode)
+    return img
 
+
+def image_to_base64_jpeg(img: Any) -> tuple[str, str]:
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=92, optimize=True)
     return base64.b64encode(buf.getvalue()).decode("utf-8"), "image/jpeg"
+
+
+def split_image_vertical(img: Any, parts: int, overlap_px: int) -> list[Any]:
+    """Split an image into overlapping vertical segments."""
+    if parts <= 1:
+        return [img]
+    width, height = img.size
+    step = math.ceil(height / parts)
+    out: list[Any] = []
+    for idx in range(parts):
+        start = idx * step
+        end = min(height, (idx + 1) * step)
+        if idx > 0:
+            start = max(0, start - max(0, overlap_px))
+        if idx < parts - 1:
+            end = min(height, end + max(0, overlap_px))
+        if end <= start:
+            continue
+        out.append(img.crop((0, start, width, end)))
+    return out if out else [img]
 
 
 def strip_code_fences(text: str) -> str:
@@ -233,7 +268,7 @@ def strip_code_fences(text: str) -> str:
     return t
 
 
-def parse_json_array_loose(text: str) -> List[Dict[str, Any]]:
+def parse_json_array_loose(text: str) -> list[dict[str, Any]]:
     raw = strip_code_fences(text)
     try:
         parsed = json.loads(raw)
@@ -273,7 +308,23 @@ def _strip_number_commas(value: str) -> str:
     return (value or "").replace(",", "")
 
 
-def json_row_to_csv_row(item: Dict[str, Any]) -> Dict[str, str]:
+def apply_sticky_context(row: dict[str, str], context: dict[str, str], sticky_columns: list[str]) -> dict[str, str]:
+    """
+    Fill repeated statement-level fields on sparse detail rows.
+    If a sticky field is blank on this row but was seen earlier in the same file,
+    carry it forward.
+    """
+    out = dict(row)
+    for col in sticky_columns:
+        current = (out.get(col, "") or "").strip()
+        if current:
+            context[col] = current
+        elif context.get(col):
+            out[col] = context[col]
+    return out
+
+
+def json_row_to_csv_row(item: dict[str, Any]) -> dict[str, str]:
     row = {col: "" for col in CSV_COLUMNS}
     for jkey, ckey in JSON_TO_CSV.items():
         row[ckey] = str(item.get(jkey, "") if item.get(jkey, "") is not None else "")
@@ -331,7 +382,7 @@ def json_row_to_csv_row(item: Dict[str, Any]) -> Dict[str, str]:
     return row
 
 
-def dedupe_adjacent_rows(rows: List[Dict[str, str]]) -> List[Dict[str, str]]:
+def dedupe_adjacent_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
     if not rows:
         return []
     out = [rows[0]]
@@ -341,9 +392,53 @@ def dedupe_adjacent_rows(rows: List[Dict[str, str]]) -> List[Dict[str, str]]:
     return out
 
 
-def ask_model_for_page(client: Mistral, image_b64: str, media_type: str) -> List[Dict[str, Any]]:
-    last_error: Optional[Exception] = None
+def merge_unique_rows(primary: list[dict[str, Any]], extra: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Merge row dicts, preserving order and dropping exact duplicates by normalized JSON signature."""
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in primary + extra:
+        try:
+            sig = json.dumps(row, sort_keys=True, separators=(",", ":"))
+        except Exception:
+            sig = str(row)
+        if sig in seen:
+            continue
+        seen.add(sig)
+        merged.append(row)
+    return merged
+
+
+def _extract_message_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+                continue
+            if isinstance(item, dict):
+                text_value = item.get("text")
+                if isinstance(text_value, str):
+                    parts.append(text_value)
+        return "\n".join(parts).strip()
+    return ""
+
+
+class ExtractionCancelledError(RuntimeError):
+    """Raised when a running extraction was cancelled by the user."""
+
+
+def ask_model_for_page(
+    client: Mistral,
+    image_b64: str,
+    media_type: str,
+    should_stop: Callable[[], bool] | None = None,
+) -> list[dict[str, Any]]:
+    last_error: Exception | None = None
     for attempt in range(1, MAX_RETRIES + 1):
+        if should_stop and should_stop():
+            raise ExtractionCancelledError("Extraction cancelled.")
         try:
             response = client.chat.complete(
                 model=MODEL,
@@ -360,9 +455,10 @@ def ask_model_for_page(client: Mistral, image_b64: str, media_type: str) -> List
                 ],
             )
             content = response.choices[0].message.content
-            if not isinstance(content, str):
-                raise ValueError("Model response content was not a string.")
-            return parse_json_array_loose(content)
+            content_text = _extract_message_text(content)
+            if not content_text:
+                raise ValueError("Model response content was empty.")
+            return parse_json_array_loose(content_text)
         except Exception as exc:
             last_error = exc
             logging.warning(f"Attempt {attempt} failed: {exc}")
@@ -371,7 +467,12 @@ def ask_model_for_page(client: Mistral, image_b64: str, media_type: str) -> List
     raise RuntimeError(f"Model call failed after {MAX_RETRIES} attempts: {last_error}")
 
 
-def process_checks_to_csv(pdf_folder: str, output_csv: str) -> int:
+def process_checks_to_csv(
+    pdf_folder: str,
+    output_csv: str,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    should_stop: Callable[[], bool] | None = None,
+) -> int:
     if fitz is None:
         raise RuntimeError("Missing pymupdf dependency. Install with `pip install -r requirements.txt`.")
     if Mistral is Any:
@@ -384,6 +485,16 @@ def process_checks_to_csv(pdf_folder: str, output_csv: str) -> int:
     pdf_paths = sorted([p for p in pdf_dir.iterdir() if p.suffix.lower() == ".pdf"])
     if not pdf_paths:
         print("No PDF files found.")
+        if progress_callback:
+            progress_callback(
+                {
+                    "state": "completed",
+                    "total_files": 0,
+                    "total_pages": 0,
+                    "processed_pages": 0,
+                    "rows_written": 0,
+                }
+            )
         return 0
 
     api_key = require_api_key()
@@ -391,36 +502,170 @@ def process_checks_to_csv(pdf_folder: str, output_csv: str) -> int:
     output_path = Path(output_csv)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
+    total_pages = 0
+    for pdf_path in pdf_paths:
+        try:
+            with fitz.open(pdf_path) as doc:
+                total_pages += doc.page_count
+        except Exception:
+            continue
+
+    processed_pages = 0
     total_rows = 0
     print(f"Found {len(pdf_paths)} PDF file(s). Processing...")
+    if progress_callback:
+        progress_callback(
+            {
+                "state": "running",
+                "total_files": len(pdf_paths),
+                "total_pages": total_pages,
+                "processed_pages": processed_pages,
+                "rows_written": total_rows,
+                "current_file": "",
+            }
+        )
 
     with open(output_path, "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=CSV_COLUMNS)
         writer.writeheader()
 
         for pdf_path in pdf_paths:
+            if should_stop and should_stop():
+                if progress_callback:
+                    progress_callback(
+                        {
+                            "state": "cancelled",
+                            "total_files": len(pdf_paths),
+                            "total_pages": total_pages,
+                            "processed_pages": processed_pages,
+                            "rows_written": total_rows,
+                            "current_file": "",
+                        }
+                    )
+                return total_rows
             print(f"Processing {pdf_path.name}")
             file_rows = 0
+            file_context: dict[str, str] = {}
+            sticky_columns = [
+                "Operator Name",
+                "Owner Name",
+                "Owner Number",
+                "Check Number",
+                "Check Date",
+                "Check Amount",
+                "Operator CC",
+                "Operator API",
+                "Property Description",
+                "Property State",
+                "Property County",
+            ]
             try:
                 doc = fitz.open(pdf_path)
                 for page_num in range(doc.page_count):
+                    page_started = time.time()
+                    if should_stop and should_stop():
+                        doc.close()
+                        if progress_callback:
+                            progress_callback(
+                                {
+                                    "state": "cancelled",
+                                    "total_files": len(pdf_paths),
+                                    "total_pages": total_pages,
+                                    "processed_pages": processed_pages,
+                                    "rows_written": total_rows,
+                                    "current_file": "",
+                                }
+                            )
+                        return total_rows
                     image_b64, media_type = pdf_page_to_base64_jpeg(doc, page_num, dpi=DPI)
-                    detail_lines = ask_model_for_page(client, image_b64, media_type)
+                    detail_lines = ask_model_for_page(
+                        client,
+                        image_b64,
+                        media_type,
+                        should_stop=should_stop,
+                    )
+                    # Optional segmented recovery pass to catch truncated/missed table rows.
+                    if PAGE_SEGMENT_FALLBACK_PARTS > 1 and (SEGMENT_PASS_ALWAYS or len(detail_lines) == 0):
+                        page_img = render_page_image(doc, page_num, dpi=DPI)
+                        segments = split_image_vertical(
+                            page_img,
+                            parts=PAGE_SEGMENT_FALLBACK_PARTS,
+                            overlap_px=PAGE_SEGMENT_OVERLAP_PX,
+                        )
+                        segmented_lines: list[dict[str, Any]] = []
+                        for segment in segments:
+                            if should_stop and should_stop():
+                                raise ExtractionCancelledError("Extraction cancelled.")
+                            seg_b64, seg_media_type = image_to_base64_jpeg(segment)
+                            seg_lines = ask_model_for_page(
+                                client,
+                                seg_b64,
+                                seg_media_type,
+                                should_stop=should_stop,
+                            )
+                            segmented_lines.extend(seg_lines)
+                        if segmented_lines:
+                            detail_lines = merge_unique_rows(detail_lines, segmented_lines)
                     for line in detail_lines:
-                        writer.writerow(json_row_to_csv_row(line))
+                        csv_row = json_row_to_csv_row(line)
+                        csv_row = apply_sticky_context(csv_row, file_context, sticky_columns)
+                        writer.writerow(csv_row)
                         file_rows += 1
                         total_rows += 1
-                    print(f"  Page {page_num + 1}: {len(detail_lines)} detail line(s)")
+                    processed_pages += 1
+                    page_elapsed_seconds = round(time.time() - page_started, 3)
+                    if progress_callback:
+                        progress_callback(
+                            {
+                                "state": "running",
+                                "total_files": len(pdf_paths),
+                                "total_pages": total_pages,
+                                "processed_pages": processed_pages,
+                                "rows_written": total_rows,
+                                "current_file": pdf_path.name,
+                                "current_page_number": page_num + 1,
+                                "current_file_total_pages": doc.page_count,
+                                "page_elapsed_seconds": page_elapsed_seconds,
+                            }
+                        )
+                    print(
+                        f"  Page {page_num + 1}: {len(detail_lines)} detail line(s) "
+                        f"in {page_elapsed_seconds:.2f}s"
+                    )
                 doc.close()
                 print(f"  Done {pdf_path.name}: {file_rows} rows")
+            except ExtractionCancelledError:
+                if progress_callback:
+                    progress_callback(
+                        {
+                            "state": "cancelled",
+                            "total_files": len(pdf_paths),
+                            "total_pages": total_pages,
+                            "processed_pages": processed_pages,
+                            "rows_written": total_rows,
+                            "current_file": "",
+                        }
+                    )
+                return total_rows
             except Exception as exc:
                 logging.error(f"  ERROR in {pdf_path.name}: {exc}", exc_info=True)
 
     print(f"Done. Wrote {total_rows} row(s) to {output_path}")
+    if progress_callback:
+        progress_callback(
+            {
+                "state": "completed",
+                "total_files": len(pdf_paths),
+                "total_pages": total_pages,
+                "processed_pages": processed_pages,
+                "rows_written": total_rows,
+                "current_file": "",
+            }
+        )
     return total_rows
 
 
-def move_uploaded_files_to_checks(uploaded: Dict[str, Any], checks_dir: str = "checks") -> List[str]:
+def move_uploaded_files_to_checks(uploaded: dict[str, Any], checks_dir: str = "checks") -> list[str]:
     os.makedirs(checks_dir, exist_ok=True)
     for filename in uploaded.keys():
         os.rename(filename, os.path.join(checks_dir, filename))

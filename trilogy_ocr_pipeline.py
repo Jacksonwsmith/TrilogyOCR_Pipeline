@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """Backward-compatible script entrypoint."""
 
-from pathlib import Path
 import sys
+from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
 
-from trilogy_ocr.cli import main
+def main() -> None:
+    root = Path(__file__).resolve().parent
+    src = root / "src"
+    if str(src) not in sys.path:
+        sys.path.insert(0, str(src))
 
+    from trilogy_ocr.cli import main as cli_main
+    cli_main()
 
 if __name__ == "__main__":
     main()
