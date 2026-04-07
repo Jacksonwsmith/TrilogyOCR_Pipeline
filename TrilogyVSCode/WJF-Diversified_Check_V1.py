@@ -1,0 +1,146 @@
+import argparse
+import csv
+import os
+
+import pdfplumber
+from pdfplumber.utils.exceptions import PdfminerException
+
+# CONFIGURATION
+
+DEFAULT_OUTPUT_CSV = "output.csv"
+
+# Optional: If your PDF has a header row you want to use as CSV column names,
+# set this to True. The first non-empty line of the PDF becomes the header.
+USE_FIRST_LINE_AS_HEADER = False
+
+# Optional: Filter out lines shorter than this many characters (removes noise).
+MIN_LINE_LENGTH = 1
+
+
+def extract_lines_from_pdf(pdf_path):
+    """Extract all non-empty lines from every page of the PDF."""
+    lines = []
+
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            total_pages = len(pdf.pages)
+            print(f"  Found {total_pages} page(s) in '{pdf_path}'")
+
+            for page_num, page in enumerate(pdf.pages, start=1):
+                text = page.extract_text()
+
+                if not text:
+                    print(f"  Page {page_num}: No text found (may be a scanned/image PDF).")
+                    continue
+
+                for raw_line in text.split("\n"):
+                    line = raw_line.strip()
+                    if len(line) >= MIN_LINE_LENGTH:
+                        lines.append({
+                            "page": page_num,
+                            "line": line,
+                        })
+
+                print(f"  Page {page_num}: extracted {len(lines)} line(s) so far.")
+    except PdfminerException:
+        print(f"\nERROR: '{pdf_path}' is not a readable PDF file.")
+        return []
+
+    return lines
+
+
+def resolve_input_pdf(pdf_arg):
+    """Resolve the PDF path from an argument or a local fallback."""
+    if pdf_arg:
+        return pdf_arg
+
+    local_pdfs = sorted(
+        name for name in os.listdir(".")
+        if name.lower().endswith(".pdf")
+    )
+    if local_pdfs:
+        return local_pdfs[0]
+
+    return None
+
+
+def write_csv(lines, output_path, use_first_line_as_header):
+    """Write extracted lines to a CSV file."""
+    if not lines:
+        print("No lines extracted - CSV not created.")
+        return
+
+    try:
+        with open(output_path, "w", newline="", encoding="utf-8") as f:
+            if use_first_line_as_header:
+                header_text = lines[0]["line"]
+                column_names = [col.strip() for col in header_text.split(",")]
+                data_lines = lines[1:]
+
+                writer = csv.writer(f)
+                writer.writerow(["page"] + column_names)
+
+                for entry in data_lines:
+                    values = [v.strip() for v in entry["line"].split(",")]
+                    values = values[:len(column_names)]
+                    values += [""] * (len(column_names) - len(values))
+                    writer.writerow([entry["page"]] + values)
+            else:
+                fieldnames = ["page", "line"]
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(lines)
+    except PermissionError:
+        print(f"\nERROR: Could not write '{output_path}'.")
+        print("   Close the file if it is open in Excel or another program, then try again.")
+        return
+
+    print(f"\nCSV saved to: {os.path.abspath(output_path)}")
+    print(f"   Total rows written: {len(lines)}")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Extract text lines from a PDF into CSV.")
+    parser.add_argument("input_pdf", nargs="?", help="Path to the input PDF.")
+    parser.add_argument(
+        "-o",
+        "--output",
+        default=DEFAULT_OUTPUT_CSV,
+        help=f"Path to the output CSV. Default: {DEFAULT_OUTPUT_CSV}",
+    )
+    args = parser.parse_args()
+    input_pdf = resolve_input_pdf(args.input_pdf)
+
+    print("=" * 50)
+    print("PDF to CSV Converter")
+    print("=" * 50)
+
+    if not input_pdf:
+        print("\nERROR: No input PDF was provided and no PDF was found in this folder.")
+        print("   Usage: python WJF-Diversified_Check_V1.py <path-to-pdf> [-o output.csv]")
+        return
+
+    if not os.path.exists(input_pdf):
+        print(f"\nERROR: PDF not found at '{input_pdf}'")
+        return
+
+    if not input_pdf.lower().endswith(".pdf"):
+        print(f"\nERROR: '{input_pdf}' does not look like a PDF file.")
+        print("   Pass a .pdf file path, not a CSV or another file type.")
+        return
+
+    print(f"\nReading: {input_pdf}")
+    lines = extract_lines_from_pdf(input_pdf)
+
+    if not lines:
+        print("\nWARNING: No text could be extracted.")
+        print("   If your PDF is scanned/image-based, you'll need OCR.")
+        print("   Install: pip install pytesseract pdf2image")
+        return
+
+    print(f"\nWriting to: {args.output}")
+    write_csv(lines, args.output, USE_FIRST_LINE_AS_HEADER)
+
+
+if __name__ == "__main__":
+    main()
